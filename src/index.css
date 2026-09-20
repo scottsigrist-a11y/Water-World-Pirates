@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+/* Glass Display HUD Typography and Effects */
+.hud-score {
+  font-family: 'Cinzel', 'Rajdhani', sans-serif;
+  color: #fbbf24; /* Golden */
+  text-shadow: 
+    0 0 10px #000000,
+    0 0 20px #000000,
+    0 0 30px #000000,
+    2px 2px 4px #000000,
+    -2px -2px 4px #000000,
+    2px -2px 4px #000000,
+    -2px 2px 4px #000000;
+}
+
+.hud-floodable {
+  font-family: 'Rajdhani', sans-serif;
+  color: #ffffff;
+  text-shadow: 
+    0 0 8px #000000,
+    0 0 16px #000000,
+    2px 2px 4px #000000,
+    -2px -2px 4px #000000;
+}
+
+.hud-flooding {
+  font-family: 'Cinzel', 'Rajdhani', sans-serif;
+  color: #000000;
+  text-shadow:
+    -3px -3px 0 #ffffff,
+     0   -3px 0 #ffffff,
+     3px -3px 0 #ffffff,
+     3px  0   0 #ffffff,
+     3px  3px 0 #ffffff,
+     0    3px 0 #ffffff,
+    -3px  3px 0 #ffffff,
+    -3px  0   0 #ffffff,
+    0 0 15px rgba(255, 255, 255, 0.9),
+    0 0 30px rgba(255, 255, 255, 0.6);
+}
+
+/* Hide standard leaflet controls for immersive Ray-Ban display experience */
+.leaflet-control-attribution,
+.leaflet-control-zoom {
+  display: none !important;
+}
+
+/* Water World Water Waves Animation */
+@keyframes waterRipples {
+  0% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  50% {
+    filter: hue-rotate(15deg) brightness(1.2);
+  }
+  100% {
+    filter: hue-rotate(0deg) brightness(1);
+  }
+}
+
+.water-flooded-path {
+  animation: waterRipples 4s ease-in-out infinite;
+}
+
+/* Glass Optical Display Vignette / HUD aesthetic */
+.glasses-hud-overlay {
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 65%, rgba(0, 20, 40, 0.4) 100%);
+}

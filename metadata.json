@@ -1,0 +1,6 @@
+{
+  "name": "Water World",
+  "description": "A location-based Meta Ray-Ban display glasses game where you navigate as a pirate ship, deploy scout boats, enclose territory, and flood the world.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
