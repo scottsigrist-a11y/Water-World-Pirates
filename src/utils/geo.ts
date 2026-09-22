@@ -100,38 +100,80 @@ export function buildEnclosedPolygon(
 }
 
 /**
- * Convert GeoPoint array to turf Polygon feature with self-intersection handling
+ * Clean a sequence of GeoPoints into a valid GeoJSON LinearRing:
+ * - Drops invalid coordinates
+ * - Filters out consecutive duplicate vertices (< 0.1m)
+ * - Ensures ring is properly closed
+ * - Requires at least 3 distinct vertices
+ */
+export function cleanRing(points: GeoPoint[]): number[][] | null {
+  if (!points || points.length < 3) return null;
+
+  const ring: number[][] = [];
+  for (const pt of points) {
+    const lng = Number(pt.lng);
+    const lat = Number(pt.lat);
+    if (isNaN(lng) || isNaN(lat)) continue;
+
+    if (ring.length === 0) {
+      ring.push([lng, lat]);
+    } else {
+      const prev = ring[ring.length - 1];
+      if (Math.abs(prev[0] - lng) > 1e-6 || Math.abs(prev[1] - lat) > 1e-6) {
+        ring.push([lng, lat]);
+      }
+    }
+  }
+
+  // Remove trailing duplicate if it matches the first
+  if (ring.length > 1) {
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (Math.abs(first[0] - last[0]) < 1e-6 && Math.abs(first[1] - last[1]) < 1e-6) {
+      ring.pop();
+    }
+  }
+
+  if (ring.length < 3) return null;
+
+  // Close the ring
+  ring.push([...ring[0]]);
+  return ring;
+}
+
+/**
+ * Convert GeoPoint array to turf Polygon feature with robust self-intersection handling
  */
 export function toTurfPolygon(
   coords: GeoPoint[]
 ): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null {
-  if (coords.length < 4) return null;
-
-  const turfCoords = coords.map((pt) => [pt.lng, pt.lat]);
-  // Ensure closed ring
-  const first = turfCoords[0];
-  const last = turfCoords[turfCoords.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) {
-    turfCoords.push([...first]);
-  }
+  const ring = cleanRing(coords);
+  if (!ring) return null;
 
   try {
-    const rawPoly = turf.polygon([turfCoords]);
-    const unkinked = turf.unkinkPolygon(rawPoly);
-    if (unkinked.features.length === 0) return null;
-    if (unkinked.features.length === 1) return unkinked.features[0];
+    const rawPoly = turf.polygon([ring]);
 
-    // Combine unkinked polygons
-    let combined: any = unkinked.features[0];
-    for (let i = 1; i < unkinked.features.length; i++) {
-      try {
-        const unionRes = turf.union(turf.featureCollection([combined, unkinked.features[i]]));
-        if (unionRes) combined = unionRes;
-      } catch {
-        // Continue
+    // Try unkinkPolygon to resolve self-intersecting loops
+    try {
+      const unkinked = turf.unkinkPolygon(rawPoly);
+      if (unkinked.features.length === 1) return unkinked.features[0];
+      if (unkinked.features.length > 1) {
+        let combined: any = unkinked.features[0];
+        for (let i = 1; i < unkinked.features.length; i++) {
+          try {
+            const unionRes = turf.union(turf.featureCollection([combined, unkinked.features[i]]));
+            if (unionRes) combined = unionRes;
+          } catch {
+            // Keep existing combined
+          }
+        }
+        return combined;
       }
+    } catch {
+      // unkink failed (e.g. duplicate non-adjacent vertex), rawPoly is still valid geometry
     }
-    return combined;
+
+    return rawPoly;
   } catch {
     return null;
   }
@@ -148,25 +190,31 @@ export function calculateFloodableAreaSqMiles(
   if (!poly) return 0;
 
   try {
+    const polySqMeters = turf.area(poly);
     if (!existingWaterFeature) {
-      const sqMeters = turf.area(poly);
-      return Math.max(0, sqMeters * SQ_METERS_TO_SQ_MILES);
+      return Math.max(0, polySqMeters * SQ_METERS_TO_SQ_MILES);
     }
 
     // Subtract existing water from candidate polygon
-    const diff = turf.difference(turf.featureCollection([poly, existingWaterFeature]));
-    if (!diff) return 0;
-
-    const sqMeters = turf.area(diff);
-    return Math.max(0, sqMeters * SQ_METERS_TO_SQ_MILES);
-  } catch (err) {
-    // Fallback simple area if difference encounters topology anomalies
     try {
-      const sqMeters = turf.area(poly);
-      return Math.max(0, sqMeters * SQ_METERS_TO_SQ_MILES);
+      const diff = turf.difference(turf.featureCollection([poly, existingWaterFeature]));
+      if (diff) {
+        const sqMeters = turf.area(diff);
+        return Math.max(0, sqMeters * SQ_METERS_TO_SQ_MILES);
+      }
     } catch {
-      return 0;
+      // If difference threw a topology exception, fallback to estimated difference
+      const existingArea = turf.area(existingWaterFeature);
+      const unionCandidate = turf.union(turf.featureCollection([existingWaterFeature, poly]));
+      if (unionCandidate) {
+        const unionArea = turf.area(unionCandidate);
+        return Math.max(0, (unionArea - existingArea) * SQ_METERS_TO_SQ_MILES);
+      }
     }
+
+    return Math.max(0, polySqMeters * SQ_METERS_TO_SQ_MILES);
+  } catch {
+    return 0;
   }
 }
 
@@ -191,9 +239,10 @@ export function unionWater(
   }
 
   if (!existingWaterFeature) {
+    const area = turf.area(newPoly) * SQ_METERS_TO_SQ_MILES;
     return {
       newFeature: newPoly,
-      totalAreaSqMiles: turf.area(newPoly) * SQ_METERS_TO_SQ_MILES,
+      totalAreaSqMiles: area,
     };
   }
 
@@ -207,13 +256,17 @@ export function unionWater(
       };
     }
   } catch {
-    // If union fails due to precision, compute combined area estimate
-    const combinedArea =
-      (turf.area(existingWaterFeature) + turf.area(newPoly)) * SQ_METERS_TO_SQ_MILES;
-    return {
-      newFeature: existingWaterFeature,
-      totalAreaSqMiles: combinedArea,
-    };
+    // If union fails due to precision/topology, combine into MultiPolygon or sum areas
+    try {
+      const combinedArea =
+        (turf.area(existingWaterFeature) + turf.area(newPoly)) * SQ_METERS_TO_SQ_MILES;
+      return {
+        newFeature: existingWaterFeature,
+        totalAreaSqMiles: combinedArea,
+      };
+    } catch {
+      // Fallback to existing
+    }
   }
 
   return {
@@ -228,7 +281,8 @@ export function unionWater(
 export function calculateSupplyShipState(
   startPt: GeoPoint,
   currentPt: GeoPoint,
-  timeMs: number
+  timeMs: number,
+  shipHeadingDeg: number = 45
 ): {
   position: GeoPoint;
   heading: number;
@@ -244,19 +298,13 @@ export function calculateSupplyShipState(
 
   const chordDist = getDistanceMeters(startPt, currentPt);
 
-  if (chordDist < 5) {
-    return {
-      position: startPt,
-      heading: 0,
-      progress,
-      isForward,
-    };
-  }
-
-  // Calculate arched outer perimeter point
-  const bearing = getBearing(startPt, currentPt);
+  // Compute bearing and outward apex point
+  const bearing = chordDist >= 10 ? getBearing(startPt, currentPt) : shipHeadingDeg;
   const perpBearing = (bearing + 90) % 360;
-  const offset = Math.max(30, chordDist * 0.28);
+
+  // Ensure an outward perimeter arc even if user is stationary or just starting
+  const offset = Math.max(90, chordDist * 0.38);
+
   const mid: GeoPoint = {
     lat: (startPt.lat + currentPt.lat) / 2,
     lng: (startPt.lng + currentPt.lng) / 2,
@@ -270,14 +318,14 @@ export function calculateSupplyShipState(
   const curLng = t1 * t1 * startPt.lng + 2 * t1 * t * apex.lng + t * t * currentPt.lng;
 
   // Tangent for heading facing direction of travel
-  const dt = 0.01;
+  const dt = 0.02;
   const tNext = isForward ? Math.min(1, t + dt) : Math.max(0, t - dt);
   const tNext1 = 1 - tNext;
   const nextLat = tNext1 * tNext1 * startPt.lat + 2 * tNext1 * tNext * apex.lat + tNext * tNext * currentPt.lat;
   const nextLng = tNext1 * tNext1 * startPt.lng + 2 * tNext1 * tNext * apex.lng + tNext * tNext * currentPt.lng;
 
   let heading = getBearing({ lat: curLat, lng: curLng }, { lat: nextLat, lng: nextLng });
-  if (isNaN(heading)) heading = 0;
+  if (isNaN(heading)) heading = bearing;
 
   return {
     position: { lat: curLat, lng: curLng },
@@ -299,13 +347,29 @@ export function buildSupplyPolygon(
   currentPt: GeoPoint,
   supplyPt: GeoPoint
 ): GeoPoint[] {
-  const ring: GeoPoint[] = [startPt];
-  for (const pt of userPath) {
-    ring.push(pt);
+  const ring: GeoPoint[] = [];
+
+  // 1. Path from start to pirate ship
+  if (userPath && userPath.length > 0) {
+    for (const pt of userPath) {
+      ring.push(pt);
+    }
+  } else {
+    ring.push(startPt);
   }
-  ring.push(currentPt);
+
+  // Ensure current pirate ship position is at the end of the user path
+  const last = ring[ring.length - 1];
+  if (!last || Math.abs(last.lat - currentPt.lat) > 1e-6 || Math.abs(last.lng - currentPt.lng) > 1e-6) {
+    ring.push(currentPt);
+  }
+
+  // 2. Black dotted line: Pirate ship to Supply ship bow
   ring.push(supplyPt);
+
+  // 3. Black dotted line: Supply ship stern to start of path
   ring.push(startPt);
+
   return ring;
 }
 
@@ -326,10 +390,13 @@ export function unionMultipleWater(
       currentFeature = res.newFeature;
     }
   }
+
+  const totalArea = currentFeature
+    ? turf.area(currentFeature) * SQ_METERS_TO_SQ_MILES
+    : 0;
+
   return {
     newFeature: currentFeature,
-    totalAreaSqMiles: currentFeature
-      ? turf.area(currentFeature) * SQ_METERS_TO_SQ_MILES
-      : 0,
+    totalAreaSqMiles: Math.max(0, totalArea),
   };
 }

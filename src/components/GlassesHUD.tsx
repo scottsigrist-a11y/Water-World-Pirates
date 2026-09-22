@@ -25,6 +25,7 @@ interface GlassesHUDProps {
   hasGps: boolean;
   onGrantGps: () => void;
   onOpenZoomWindow: () => void;
+  onFlood?: () => void;
 }
 
 export const GlassesHUD: React.FC<GlassesHUDProps> = ({
@@ -41,6 +42,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
   hasGps,
   onGrantGps,
   onOpenZoomWindow,
+  onFlood,
 }) => {
   return (
     <div className="absolute inset-0 pointer-events-none z-[1000] flex flex-col justify-between p-4 md:p-8 select-none">
@@ -65,7 +67,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
             <button
               type="button"
               onClick={onGrantGps}
-              className="bg-amber-500/90 hover:bg-amber-400 text-black font-bold px-3.5 py-1.5 rounded-full text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.6)] animate-pulse transition"
+              className="bg-amber-500/90 hover:bg-amber-400 text-black font-bold px-3.5 py-1.5 rounded-full text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.6)] animate-pulse transition cursor-pointer"
               title="Allow GPS Location on Glasses"
             >
               <MapPin className="w-3.5 h-3.5 text-black" />
@@ -80,8 +82,13 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
         </div>
 
         {/* UPPER RIGHT: Large Bold Letters saying Floodable & Breakout */}
-        <div id="hud-floodable-display" className="pointer-events-auto flex flex-col items-end text-right">
-          <div className="hud-floodable text-3xl sm:text-4xl md:text-5xl font-black tracking-wider flex items-baseline gap-2">
+        <div
+          id="hud-floodable-display"
+          onClick={() => onFlood && onFlood()}
+          className="pointer-events-auto flex flex-col items-end text-right cursor-pointer group"
+          title="Click or Swipe Down to Flood Territory"
+        >
+          <div className="hud-floodable text-3xl sm:text-4xl md:text-5xl font-black tracking-wider flex items-baseline gap-2 group-hover:scale-105 transition-transform">
             <span>Floodable:</span>
             <span
               className={`font-mono text-4xl sm:text-5xl md:text-6xl transition-colors duration-200 ${
@@ -93,8 +100,13 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
               {floodableSqMiles.toFixed(2)}
             </span>
           </div>
-          <div className="text-xs sm:text-sm font-bold text-cyan-100/80 uppercase tracking-widest pr-1 mt-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-            sq miles
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-cyan-400 bg-cyan-950/80 border border-cyan-400/40 px-2 py-0.5 rounded-md uppercase tracking-wider font-bold">
+              Swipe Down or Tap to Flood
+            </span>
+            <span className="text-xs sm:text-sm font-bold text-cyan-100/80 uppercase tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
+              sq miles
+            </span>
           </div>
 
           {/* Subtext Breakout: Supply Ship & Scout */}

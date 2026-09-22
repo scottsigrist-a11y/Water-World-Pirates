@@ -107,6 +107,9 @@ export default function App() {
   const cumulativeWaterRef = useRef(cumulativeWaterFeature);
   cumulativeWaterRef.current = cumulativeWaterFeature;
 
+  const supplyEnclosedCoordsRef = useRef<GeoPoint[] | null>(null);
+  supplyEnclosedCoordsRef.current = supplyEnclosedCoords;
+
   const userPathSinceAnchorRef = useRef<GeoPoint[]>(userPathSinceAnchor);
   userPathSinceAnchorRef.current = userPathSinceAnchor;
 
@@ -208,6 +211,10 @@ export default function App() {
     const prevPos = userPosRef.current;
     const distanceMeters = getDistanceMeters(prevPos, newPos);
 
+    userPosRef.current = newPos;
+    userHeadingRef.current = heading;
+    userSpeedRef.current = speedMps;
+
     setUserPos(newPos);
     setUserHeading(heading);
     setUserSpeedMps(speedMps);
@@ -216,14 +223,20 @@ export default function App() {
     setUserPath((prev) => {
       const last = prev[prev.length - 1];
       if (!last || getDistanceMeters(last, newPos) >= 2) {
-        return [...prev, newPos];
+        const next = [...prev, newPos];
+        userPathRef.current = next;
+        return next;
       }
       return prev;
     });
 
     // If anchor is active, also record user path segment since anchor dropped
     if (anchorRef.current) {
-      setUserPathSinceAnchor((prev) => [...prev, newPos]);
+      setUserPathSinceAnchor((prev) => {
+        const next = [...prev, newPos];
+        userPathSinceAnchorRef.current = next;
+        return next;
+      });
     }
 
     // Move Scout Boat if active
@@ -240,6 +253,7 @@ export default function App() {
         position: newScoutPos,
         path: [...currentScout.path, newScoutPos],
       };
+      scoutInfoRef.current = updatedScout;
       setScoutInfo(updatedScout);
     }
   }, []);
@@ -272,7 +286,12 @@ export default function App() {
       const startPt = currentPath[0] || userPosRef.current;
       const shipPt = userPosRef.current;
 
-      const newSupplyState = calculateSupplyShipState(startPt, shipPt, Date.now());
+      const newSupplyState = calculateSupplyShipState(
+        startPt,
+        shipPt,
+        Date.now(),
+        userHeadingRef.current
+      );
       setSupplyShipInfo(newSupplyState);
 
       const newSupplyPolygon = buildSupplyPolygon(
@@ -281,6 +300,7 @@ export default function App() {
         shipPt,
         newSupplyState.position
       );
+      supplyEnclosedCoordsRef.current = newSupplyPolygon;
       setSupplyEnclosedCoords(newSupplyPolygon);
 
       // 3. Compute Real-Time Floodable Areas & Breakout:
@@ -367,11 +387,29 @@ export default function App() {
   const triggerFlooding = useCallback(() => {
     const currentScout = scoutInfoRef.current;
     const currentAnchor = anchorRef.current;
-    const currentSupplyCoords = supplyEnclosedCoords;
+    const currentShipPos = userPosRef.current;
+    const currentPath = userPathRef.current;
 
     const polygonsToFlood: GeoPoint[][] = [];
 
     // 1. Supply ship enclosed polygon
+    let currentSupplyCoords = supplyEnclosedCoordsRef.current;
+    if (!currentSupplyCoords || currentSupplyCoords.length < 3) {
+      const startPt = currentPath[0] || currentShipPos;
+      const supplyState = calculateSupplyShipState(
+        startPt,
+        currentShipPos,
+        Date.now(),
+        userHeadingRef.current
+      );
+      currentSupplyCoords = buildSupplyPolygon(
+        startPt,
+        currentPath,
+        currentShipPos,
+        supplyState.position
+      );
+    }
+
     if (currentSupplyCoords && currentSupplyCoords.length >= 3) {
       polygonsToFlood.push(currentSupplyCoords);
     }
@@ -383,10 +421,10 @@ export default function App() {
         currentAnchor.position,
         currentScout.path,
         currentScout.position,
-        userPosRef.current,
+        currentShipPos,
         userPathSinceAnchorRef.current
       );
-      if (scoutEnclosedCoords.length >= 3) {
+      if (scoutEnclosedCoords && scoutEnclosedCoords.length >= 3) {
         polygonsToFlood.push(scoutEnclosedCoords);
         hasScoutFlooded = true;
       }
@@ -408,9 +446,17 @@ export default function App() {
       polygonsToFlood
     );
 
+    cumulativeWaterRef.current = newFeature;
     setCumulativeWaterFeature(newFeature);
     setScore(totalAreaSqMiles);
     setFloodedPolygons((prev) => [...prev, ...polygonsToFlood]);
+
+    // Reset user path to start a fresh trail from current ship position for the next flood cycle
+    setUserPath([currentShipPos]);
+    userPathRef.current = [currentShipPos];
+    setUserPathSinceAnchor([currentShipPos]);
+    userPathSinceAnchorRef.current = [currentShipPos];
+
     setFloodableSqMiles(0);
     setSupplyFloodableSqMiles(0);
     setScoutFloodableSqMiles(0);
@@ -421,15 +467,13 @@ export default function App() {
       const startTime = performance.now();
       const returnDurationMs = 700;
 
-      setScoutInfo((prev) =>
-        prev
-          ? {
-              ...prev,
-              state: 'returning',
-              returnStartPos,
-            }
-          : null
-      );
+      const returningScout: ScoutBoatInfo = {
+        ...currentScout,
+        state: 'returning',
+        returnStartPos,
+      };
+      scoutInfoRef.current = returningScout;
+      setScoutInfo(returningScout);
 
       const animateReturn = (now: number) => {
         const elapsed = now - startTime;
@@ -451,24 +495,25 @@ export default function App() {
               ? {
                   ...prev,
                   position: { lat: currentLat, lng: currentLng },
-                  heading: returnHeading,
-                  returnProgress: progress,
+                  heading: isNaN(returnHeading) ? prev.heading : returnHeading,
                 }
               : null
           );
-
           requestAnimationFrame(animateReturn);
         } else {
-          // Scout arrived at ship: reset scout and anchor
+          // Finished returning to boat: anchor goes away, scout goes away
+          scoutInfoRef.current = null;
+          anchorRef.current = null;
           setScoutInfo(null);
           setAnchor(null);
           setUserPathSinceAnchor([]);
+          userPathSinceAnchorRef.current = [];
         }
       };
 
       requestAnimationFrame(animateReturn);
     }
-  }, [supplyEnclosedCoords]);
+  }, []);
 
   // Main Swiping Action Handler
   const handleSwipe = useCallback(
@@ -668,6 +713,7 @@ export default function App() {
           setIsZoomWindowOpen(true);
           setZoomWindowFocusedRow(0);
         }}
+        onFlood={triggerFlooding}
       />
 
       {/* Horizontal Rotational Zoom Scope & View Mode Popup Window */}
