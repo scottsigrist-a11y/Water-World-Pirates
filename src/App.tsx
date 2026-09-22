@@ -49,12 +49,12 @@ export default function App() {
   const [userPos, setUserPos] = useState<GeoPoint>(INITIAL_COORDS);
   const [userHeading, setUserHeading] = useState<number>(45); // degrees
   const [userSpeedMps, setUserSpeedMps] = useState<number>(8.0); // ~18 mph default speed
-  const [userPath, setUserPath] = useState<GeoPoint[]>([INITIAL_COORDS]);
+  const [userPath, setUserPath] = useState<GeoPoint[]>([]); // Do not start until device provides current location!
   const [userPathSinceAnchor, setUserPathSinceAnchor] = useState<GeoPoint[]>([]);
 
   // Device GPS State
   const [hasGps, setHasGps] = useState<boolean>(false);
-  const [isSimulating, setIsSimulating] = useState<boolean>(true); // Gentle motion until GPS moves
+  const [isSimulating, setIsSimulating] = useState<boolean>(false); // No simulated movement until GPS lock
 
   // Scout boat state
   const [scoutInfo, setScoutInfo] = useState<ScoutBoatInfo | null>(null);
@@ -144,16 +144,13 @@ export default function App() {
         setUserPos(devicePoint);
         userPosRef.current = devicePoint;
 
-        // If path only contains the initial SF placeholder, replace it with real device location
+        // Officially start the path once current device location is locked
         setUserPath((prev) => {
-          if (
-            prev.length === 1 &&
-            Math.abs(prev[0].lat - INITIAL_COORDS.lat) < 0.001 &&
-            Math.abs(prev[0].lng - INITIAL_COORDS.lng) < 0.001
-          ) {
+          if (prev.length === 0) {
+            userPathRef.current = [devicePoint];
             return [devicePoint];
           }
-          return [...prev, devicePoint];
+          return prev;
         });
 
         if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
@@ -181,8 +178,17 @@ export default function App() {
           lng: position.coords.longitude,
         };
 
+        // First GPS fix initializes the path at real location
+        if (userPathRef.current.length === 0) {
+          setUserPos(newPt);
+          userPosRef.current = newPt;
+          setUserPath([newPt]);
+          userPathRef.current = [newPt];
+          return;
+        }
+
         const dist = getDistanceMeters(userPosRef.current, newPt);
-        if (dist >= 1.5) {
+        if (dist >= 2.5) {
           const bearing = getBearing(userPosRef.current, newPt);
           const speed = position.coords.speed || dist / 2;
           moveShip(newPt, bearing, speed);
@@ -224,10 +230,14 @@ export default function App() {
     setUserHeading(heading);
     setUserSpeedMps(speedMps);
 
-    // Append to user path
+    // Append to user path only when moved >= 2.5m to eliminate trail coordinate bloat
     setUserPath((prev) => {
+      if (prev.length === 0) {
+        userPathRef.current = [newPos];
+        return [newPos];
+      }
       const last = prev[prev.length - 1];
-      if (!last || getDistanceMeters(last, newPos) >= 2) {
+      if (!last || getDistanceMeters(last, newPos) >= 2.5) {
         const next = [...prev, newPos];
         userPathRef.current = next;
         return next;
@@ -266,14 +276,15 @@ export default function App() {
   // Continuous Voyage Simulation / Animation Loop for Ship & Supply Ship
   useEffect(() => {
     let lastTime = performance.now();
+    let lastAreaCalcTime = 0;
     let animationFrameId: number;
 
     const tick = (time: number) => {
       const dtSeconds = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      // 1. Simulate voyage movement if no active walking GPS detected
-      if (isSimulating) {
+      // 1. Simulate voyage movement only if path has been initialized with locked GPS
+      if (isSimulating && userPathRef.current.length > 0) {
         const currentPos = userPosRef.current;
         const heading = userHeadingRef.current;
         const speed = userSpeedRef.current;
@@ -286,103 +297,117 @@ export default function App() {
         moveShip(newPos, newHeading, speed);
       }
 
-      // 2. Continuous Supply Ship Movement (15s forward, 15s back = 30s cycle)
-      const RUN_DURATION_SEC = 15.0; // 15 seconds per run each way
-      if (supplyDirectionRef.current === 1) {
-        supplyProgressRef.current += dtSeconds / RUN_DURATION_SEC;
-        if (supplyProgressRef.current >= 1.0) {
-          supplyProgressRef.current = 1.0;
-          supplyDirectionRef.current = -1;
-        }
-      } else {
-        supplyProgressRef.current -= dtSeconds / RUN_DURATION_SEC;
-        if (supplyProgressRef.current <= 0.0) {
-          supplyProgressRef.current = 0.0;
-          supplyDirectionRef.current = 1;
-        }
-      }
-
+      // 2. Supply Ship Movement: only runs once the path has started from current location
       const currentPath = userPathRef.current;
-      const startPt = currentPath[0] || userPosRef.current;
-      const shipPt = userPosRef.current;
+      if (currentPath.length > 0) {
+        const RUN_DURATION_SEC = 15.0; // 15 seconds per run each way
+        if (supplyDirectionRef.current === 1) {
+          supplyProgressRef.current += dtSeconds / RUN_DURATION_SEC;
+          if (supplyProgressRef.current >= 1.0) {
+            supplyProgressRef.current = 1.0;
+            supplyDirectionRef.current = -1;
+          }
+        } else {
+          supplyProgressRef.current -= dtSeconds / RUN_DURATION_SEC;
+          if (supplyProgressRef.current <= 0.0) {
+            supplyProgressRef.current = 0.0;
+            supplyDirectionRef.current = 1;
+          }
+        }
 
-      const newSupplyState = calculateSupplyShipState(
-        startPt,
-        shipPt,
-        supplyProgressRef.current,
-        supplyDirectionRef.current === 1,
-        userHeadingRef.current
-      );
-      setSupplyShipInfo(newSupplyState);
+        const startPt = currentPath[0] || userPosRef.current;
+        const shipPt = userPosRef.current;
 
-      const newSupplyPolygon = buildSupplyPolygon(
-        startPt,
-        currentPath,
-        shipPt,
-        newSupplyState.position
-      );
-      supplyEnclosedCoordsRef.current = newSupplyPolygon;
-      setSupplyEnclosedCoords(newSupplyPolygon);
-
-      // 3. Compute Real-Time Floodable Areas in Square Meters & Breakout:
-      // A) Supply Ship floodable
-      const supplyArea = calculateFloodableAreaSqMeters(
-        newSupplyPolygon,
-        cumulativeWaterRef.current
-      );
-      setSupplyFloodableSqMeters(supplyArea);
-
-      // B) Scout boat floodable
-      let scoutArea = 0;
-      let activeScoutPoly: GeoPoint[] | null = null;
-      if (
-        scoutInfoRef.current &&
-        scoutInfoRef.current.state === 'active' &&
-        anchorRef.current
-      ) {
-        activeScoutPoly = buildEnclosedPolygon(
-          anchorRef.current.position,
-          scoutInfoRef.current.path,
-          scoutInfoRef.current.position,
+        const newSupplyState = calculateSupplyShipState(
+          startPt,
           shipPt,
-          userPathSinceAnchorRef.current
+          supplyProgressRef.current,
+          supplyDirectionRef.current === 1,
+          userHeadingRef.current
         );
-        scoutArea = calculateFloodableAreaSqMeters(
-          activeScoutPoly,
-          cumulativeWaterRef.current
+        setSupplyShipInfo(newSupplyState);
+
+        const newSupplyPolygon = buildSupplyPolygon(
+          startPt,
+          currentPath,
+          shipPt,
+          newSupplyState.position
         );
-      }
-      setScoutFloodableSqMeters(scoutArea);
+        supplyEnclosedCoordsRef.current = newSupplyPolygon;
+        setSupplyEnclosedCoords(newSupplyPolygon);
 
-      // C) Total Combined Floodable in Square Meters (avoid double counting if overlap occurs)
-      let combinedTotal = 0;
-      try {
-        const supplyTurf = toTurfPolygon(newSupplyPolygon);
-        const scoutTurf = activeScoutPoly ? toTurfPolygon(activeScoutPoly) : null;
+        // 3. Throttle expensive geometric Turf area calculations to ~5Hz (every 180ms)
+        // Keeps markers, boat movements & flag animating at 60fps while preventing smart glasses CPU thermal throttling
+        if (time - lastAreaCalcTime >= 180) {
+          lastAreaCalcTime = time;
 
-        if (supplyTurf && scoutTurf) {
-          const unionCandidates = turf.union(turf.featureCollection([supplyTurf, scoutTurf]));
-          if (unionCandidates) {
-            if (cumulativeWaterRef.current) {
-              const diff = turf.difference(
-                turf.featureCollection([unionCandidates, cumulativeWaterRef.current])
-              );
-              combinedTotal = diff ? turf.area(diff) : 0;
-            } else {
-              combinedTotal = turf.area(unionCandidates);
+          // A) Supply Ship floodable
+          const supplyArea = calculateFloodableAreaSqMeters(
+            newSupplyPolygon,
+            cumulativeWaterRef.current
+          );
+          setSupplyFloodableSqMeters(supplyArea);
+
+          // B) Scout boat floodable
+          let scoutArea = 0;
+          let activeScoutPoly: GeoPoint[] | null = null;
+          if (
+            scoutInfoRef.current &&
+            scoutInfoRef.current.state === 'active' &&
+            anchorRef.current
+          ) {
+            activeScoutPoly = buildEnclosedPolygon(
+              anchorRef.current.position,
+              scoutInfoRef.current.path,
+              scoutInfoRef.current.position,
+              shipPt,
+              userPathSinceAnchorRef.current
+            );
+            scoutArea = calculateFloodableAreaSqMeters(
+              activeScoutPoly,
+              cumulativeWaterRef.current
+            );
+          }
+          setScoutFloodableSqMeters(scoutArea);
+
+          // C) Total Combined Floodable in Square Meters (avoid double counting if overlap occurs)
+          let combinedTotal = 0;
+          try {
+            const supplyTurf = toTurfPolygon(newSupplyPolygon);
+            const scoutTurf = activeScoutPoly ? toTurfPolygon(activeScoutPoly) : null;
+
+            if (supplyTurf && scoutTurf) {
+              const unionCandidates = turf.union(turf.featureCollection([supplyTurf, scoutTurf]));
+              if (unionCandidates) {
+                if (cumulativeWaterRef.current) {
+                  const diff = turf.difference(
+                    turf.featureCollection([unionCandidates, cumulativeWaterRef.current])
+                  );
+                  combinedTotal = diff ? turf.area(diff) : 0;
+                } else {
+                  combinedTotal = turf.area(unionCandidates);
+                }
+              } else {
+                combinedTotal = supplyArea + scoutArea;
+              }
+            } else if (supplyTurf) {
+              combinedTotal = supplyArea;
+            } else if (scoutTurf) {
+              combinedTotal = scoutArea;
             }
-          } else {
+          } catch {
             combinedTotal = supplyArea + scoutArea;
           }
-        } else if (supplyTurf) {
-          combinedTotal = supplyArea;
-        } else if (scoutTurf) {
-          combinedTotal = scoutArea;
+          setFloodableSqMeters(Math.max(0, combinedTotal));
         }
-      } catch {
-        combinedTotal = supplyArea + scoutArea;
+      } else {
+        // Path has not started yet; reset supply ship display state
+        setSupplyShipInfo(null);
+        setSupplyEnclosedCoords(null);
+        setSupplyFloodableSqMeters(0);
+        setScoutFloodableSqMeters(0);
+        setFloodableSqMeters(0);
       }
-      setFloodableSqMeters(Math.max(0, combinedTotal));
 
       animationFrameId = requestAnimationFrame(tick);
     };
@@ -696,7 +721,7 @@ export default function App() {
 
   return (
     <main className="relative w-screen h-screen overflow-hidden bg-neutral-950 font-sans">
-      {/* Full Screen OpenStreetMap */}
+      {/* Full Screen Dark Mode Map */}
       <WaterWorldMap
         userPos={userPos}
         userHeading={userHeading}
@@ -709,6 +734,7 @@ export default function App() {
         supplyEnclosedCoords={supplyEnclosedCoords}
         viewMode={viewMode}
         floodedPolygons={floodedPolygons}
+        cumulativeWaterFeature={cumulativeWaterFeature}
         isFlooding={isFlooding}
         onSwipe={handleSwipe}
         onMapReady={(map) => setMapInstance(map)}

@@ -20,6 +20,7 @@ interface WaterWorldMapProps {
   supplyEnclosedCoords: GeoPoint[] | null;
   viewMode: ViewMode;
   floodedPolygons: GeoPoint[][];
+  cumulativeWaterFeature?: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null;
   isFlooding: boolean;
   onSwipe: (direction: 'up' | 'down' | 'left' | 'right') => void;
   onMapReady?: (map: L.Map) => void;
@@ -38,6 +39,7 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   supplyEnclosedCoords,
   viewMode,
   floodedPolygons,
+  cumulativeWaterFeature,
   isFlooding,
   onSwipe,
   onMapReady,
@@ -61,7 +63,7 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   const sternToShipLineRef = useRef<L.Polyline | null>(null);
   const bowToAnchorLineRef = useRef<L.Polyline | null>(null);
 
-  // Black Dotted Lines for Supply Ship:
+  // High-contrast Amber Dotted Lines for Supply Ship (optimized for dark street map contrast)
   // 1. Bow to Pirate Ship
   // 2. Stern to Start of Path
   const supplyBowToShipLineRef = useRef<L.Polyline | null>(null);
@@ -71,8 +73,8 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   const scoutPreviewPolyRef = useRef<L.Polygon | null>(null);
   const supplyPreviewPolyRef = useRef<L.Polygon | null>(null);
 
-  // Layer group for permanent flooded water bodies
-  const floodedLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  // Single unified GeoJSON layer for all permanent flooded water bodies (avoids DOM overload)
+  const floodedGeoJsonRef = useRef<L.GeoJSON | null>(null);
 
   // Touch & Swipe gesture tracking
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -106,15 +108,23 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
       touchZoom: false,
     });
 
-    // Standard OpenStreetMap Tiles
+    // Standard OpenStreetMap Tiles (Completely free, open license)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       subdomains: ['a', 'b', 'c'],
     }).addTo(map);
 
-    // Layer for flooded territories
-    const floodedGroup = L.layerGroup().addTo(map);
-    floodedLayerGroupRef.current = floodedGroup;
+    // Single unified GeoJSON layer for permanent flooded water
+    const floodedGeo = L.geoJSON(null, {
+      style: {
+        color: '#0284c7',
+        weight: 2,
+        fillColor: '#0ea5e9',
+        fillOpacity: 0.62,
+        className: 'water-flooded-path',
+      },
+    }).addTo(map);
+    floodedGeoJsonRef.current = floodedGeo;
 
     // Preview polygons for active floodable zones
     const supplyPreview = L.polygon([], {
@@ -420,26 +430,31 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     }
   }, [previewEnclosedCoords, isFlooding]);
 
-  // Render permanently flooded water polygons
+  // Render permanently flooded water: use single unified GeoJSON layer for peak GPU/CPU efficiency
   useEffect(() => {
-    const group = floodedLayerGroupRef.current;
-    if (!group) return;
+    const geoLayer = floodedGeoJsonRef.current;
+    if (!geoLayer) return;
 
-    group.clearLayers();
+    geoLayer.clearLayers();
 
-    for (const polygon of floodedPolygons) {
-      if (polygon.length < 3) continue;
-      const latlngs = polygon.map((pt) => [pt.lat, pt.lng] as [number, number]);
-      const waterPoly = L.polygon([latlngs], {
-        color: '#0284c7',
-        weight: 3,
-        fillColor: '#0ea5e9',
-        fillOpacity: 0.65,
-        className: 'water-flooded-path',
-      });
-      group.addLayer(waterPoly);
+    if (cumulativeWaterFeature) {
+      geoLayer.addData(cumulativeWaterFeature as any);
+    } else if (floodedPolygons && floodedPolygons.length > 0) {
+      // Fallback if cumulativeWaterFeature not provided
+      for (const polygon of floodedPolygons) {
+        if (polygon.length < 3) continue;
+        const latlngs = polygon.map((pt) => [pt.lat, pt.lng] as [number, number]);
+        const waterPoly = L.polygon([latlngs], {
+          color: '#0284c7',
+          weight: 2,
+          fillColor: '#0ea5e9',
+          fillOpacity: 0.62,
+          className: 'water-flooded-path',
+        });
+        geoLayer.addLayer(waterPoly);
+      }
     }
-  }, [floodedPolygons]);
+  }, [cumulativeWaterFeature, floodedPolygons]);
 
   // Touch and pointer swipe handlers
   const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
@@ -486,7 +501,7 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   return (
     <div
       id="water-world-viewport"
-      className="relative w-full h-full overflow-hidden select-none touch-none"
+      className="relative w-full h-full overflow-hidden select-none touch-none bg-black"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onMouseDown={handleTouchStart}
