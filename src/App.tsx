@@ -9,7 +9,7 @@ import {
   getDestinationPoint,
   getDistanceMeters,
   buildEnclosedPolygon,
-  calculateFloodableAreaSqMiles,
+  calculateFloodableAreaSqMeters,
   calculateSupplyShipState,
   buildSupplyPolygon,
   unionMultipleWater,
@@ -70,10 +70,10 @@ export default function App() {
   const [floodedPolygons, setFloodedPolygons] = useState<GeoPoint[][]>([]);
   const [cumulativeWaterFeature, setCumulativeWaterFeature] =
     useState<GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null>(null);
-  const [score, setScore] = useState<number>(0);
-  const [floodableSqMiles, setFloodableSqMiles] = useState<number>(0);
-  const [supplyFloodableSqMiles, setSupplyFloodableSqMiles] = useState<number>(0);
-  const [scoutFloodableSqMiles, setScoutFloodableSqMiles] = useState<number>(0);
+  const [score, setScore] = useState<number>(0); // in square meters
+  const [floodableSqMeters, setFloodableSqMeters] = useState<number>(0);
+  const [supplyFloodableSqMeters, setSupplyFloodableSqMeters] = useState<number>(0);
+  const [scoutFloodableSqMeters, setScoutFloodableSqMeters] = useState<number>(0);
   const [isFlooding, setIsFlooding] = useState<boolean>(false);
 
   // Map & Zoom Window state
@@ -109,6 +109,11 @@ export default function App() {
 
   const supplyEnclosedCoordsRef = useRef<GeoPoint[] | null>(null);
   supplyEnclosedCoordsRef.current = supplyEnclosedCoords;
+
+  // Continuous supply ship progress (0 = start of path, 1 = pirate ship) and direction (1 = to ship, -1 = to start)
+  // Each run takes exactly 15 seconds each way (30 seconds full round-trip)
+  const supplyProgressRef = useRef<number>(0);
+  const supplyDirectionRef = useRef<1 | -1>(1);
 
   const userPathSinceAnchorRef = useRef<GeoPoint[]>(userPathSinceAnchor);
   userPathSinceAnchorRef.current = userPathSinceAnchor;
@@ -282,6 +287,21 @@ export default function App() {
       }
 
       // 2. Continuous Supply Ship Movement (15s forward, 15s back = 30s cycle)
+      const RUN_DURATION_SEC = 15.0; // 15 seconds per run each way
+      if (supplyDirectionRef.current === 1) {
+        supplyProgressRef.current += dtSeconds / RUN_DURATION_SEC;
+        if (supplyProgressRef.current >= 1.0) {
+          supplyProgressRef.current = 1.0;
+          supplyDirectionRef.current = -1;
+        }
+      } else {
+        supplyProgressRef.current -= dtSeconds / RUN_DURATION_SEC;
+        if (supplyProgressRef.current <= 0.0) {
+          supplyProgressRef.current = 0.0;
+          supplyDirectionRef.current = 1;
+        }
+      }
+
       const currentPath = userPathRef.current;
       const startPt = currentPath[0] || userPosRef.current;
       const shipPt = userPosRef.current;
@@ -289,7 +309,8 @@ export default function App() {
       const newSupplyState = calculateSupplyShipState(
         startPt,
         shipPt,
-        Date.now(),
+        supplyProgressRef.current,
+        supplyDirectionRef.current === 1,
         userHeadingRef.current
       );
       setSupplyShipInfo(newSupplyState);
@@ -303,13 +324,13 @@ export default function App() {
       supplyEnclosedCoordsRef.current = newSupplyPolygon;
       setSupplyEnclosedCoords(newSupplyPolygon);
 
-      // 3. Compute Real-Time Floodable Areas & Breakout:
+      // 3. Compute Real-Time Floodable Areas in Square Meters & Breakout:
       // A) Supply Ship floodable
-      const supplyArea = calculateFloodableAreaSqMiles(
+      const supplyArea = calculateFloodableAreaSqMeters(
         newSupplyPolygon,
         cumulativeWaterRef.current
       );
-      setSupplyFloodableSqMiles(supplyArea);
+      setSupplyFloodableSqMeters(supplyArea);
 
       // B) Scout boat floodable
       let scoutArea = 0;
@@ -326,14 +347,14 @@ export default function App() {
           shipPt,
           userPathSinceAnchorRef.current
         );
-        scoutArea = calculateFloodableAreaSqMiles(
+        scoutArea = calculateFloodableAreaSqMeters(
           activeScoutPoly,
           cumulativeWaterRef.current
         );
       }
-      setScoutFloodableSqMiles(scoutArea);
+      setScoutFloodableSqMeters(scoutArea);
 
-      // C) Total Combined Floodable (avoid double counting if overlap occurs)
+      // C) Total Combined Floodable in Square Meters (avoid double counting if overlap occurs)
       let combinedTotal = 0;
       try {
         const supplyTurf = toTurfPolygon(newSupplyPolygon);
@@ -346,9 +367,9 @@ export default function App() {
               const diff = turf.difference(
                 turf.featureCollection([unionCandidates, cumulativeWaterRef.current])
               );
-              combinedTotal = diff ? turf.area(diff) * 3.8610215854245e-7 : 0;
+              combinedTotal = diff ? turf.area(diff) : 0;
             } else {
-              combinedTotal = turf.area(unionCandidates) * 3.8610215854245e-7;
+              combinedTotal = turf.area(unionCandidates);
             }
           } else {
             combinedTotal = supplyArea + scoutArea;
@@ -361,7 +382,7 @@ export default function App() {
       } catch {
         combinedTotal = supplyArea + scoutArea;
       }
-      setFloodableSqMiles(Math.max(0, combinedTotal));
+      setFloodableSqMeters(Math.max(0, combinedTotal));
 
       animationFrameId = requestAnimationFrame(tick);
     };
@@ -399,7 +420,8 @@ export default function App() {
       const supplyState = calculateSupplyShipState(
         startPt,
         currentShipPos,
-        Date.now(),
+        supplyProgressRef.current,
+        supplyDirectionRef.current === 1,
         userHeadingRef.current
       );
       currentSupplyCoords = buildSupplyPolygon(
@@ -441,25 +463,27 @@ export default function App() {
     }, 1000);
 
     // 4. Compute score & water union (ensuring each area only contributes once)
-    const { newFeature, totalAreaSqMiles } = unionMultipleWater(
+    const { newFeature, totalAreaSqMeters } = unionMultipleWater(
       cumulativeWaterRef.current,
       polygonsToFlood
     );
 
     cumulativeWaterRef.current = newFeature;
     setCumulativeWaterFeature(newFeature);
-    setScore(totalAreaSqMiles);
+    setScore(totalAreaSqMeters);
     setFloodedPolygons((prev) => [...prev, ...polygonsToFlood]);
 
-    // Reset user path to start a fresh trail from current ship position for the next flood cycle
-    setUserPath([currentShipPos]);
-    userPathRef.current = [currentShipPos];
-    setUserPathSinceAnchor([currentShipPos]);
-    userPathSinceAnchorRef.current = [currentShipPos];
+    // Note: The entire userPath and supply progress/direction are preserved so the supply ship
+    // continues smoothly from where it was towards either start of path or pirate ship.
+    // Reset scout segment if scout was flooded
+    if (hasScoutFlooded) {
+      setUserPathSinceAnchor([currentShipPos]);
+      userPathSinceAnchorRef.current = [currentShipPos];
+    }
 
-    setFloodableSqMiles(0);
-    setSupplyFloodableSqMiles(0);
-    setScoutFloodableSqMiles(0);
+    setFloodableSqMeters(0);
+    setSupplyFloodableSqMeters(0);
+    setScoutFloodableSqMeters(0);
 
     // 5. Scout returns to pirate ship in less than 1 second (<1s animation)
     if (hasScoutFlooded && currentScout) {
@@ -698,9 +722,9 @@ export default function App() {
       {/* Head-Up Display (HUD) with Water World Movie Logo and Breakout Scores */}
       <GlassesHUD
         score={score}
-        floodableSqMiles={floodableSqMiles}
-        supplyFloodableSqMiles={supplyFloodableSqMiles}
-        scoutFloodableSqMiles={scoutFloodableSqMiles}
+        floodableSqMeters={floodableSqMeters}
+        supplyFloodableSqMeters={supplyFloodableSqMeters}
+        scoutFloodableSqMeters={scoutFloodableSqMeters}
         isFlooding={isFlooding}
         scoutInfo={scoutInfo}
         anchor={anchor}

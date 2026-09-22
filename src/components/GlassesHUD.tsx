@@ -12,10 +12,10 @@ import { ScoutBoatInfo, AnchorPoint } from '../types';
 import { WaterWorldLogo } from './WaterWorldLogo';
 
 interface GlassesHUDProps {
-  score: number;
-  floodableSqMiles: number;
-  supplyFloodableSqMiles: number;
-  scoutFloodableSqMiles: number;
+  score: number; // in square meters
+  floodableSqMeters: number;
+  supplyFloodableSqMeters: number;
+  scoutFloodableSqMeters: number;
   isFlooding: boolean;
   scoutInfo: ScoutBoatInfo | null;
   anchor: AnchorPoint | null;
@@ -28,11 +28,41 @@ interface GlassesHUDProps {
   onFlood?: () => void;
 }
 
+export function formatScoreMeters(meters: number) {
+  if (meters > 1000) {
+    return {
+      value: (meters / 1000).toFixed(2),
+      unit: 'km',
+      label: 'kilometers flooded',
+    };
+  }
+  return {
+    value: meters.toFixed(2),
+    unit: 'm²',
+    label: 'square meters flooded',
+  };
+}
+
+export function formatAreaMeters(meters: number) {
+  if (meters > 1000) {
+    return {
+      value: (meters / 1000).toFixed(2),
+      unit: 'km',
+      shortUnit: 'km',
+    };
+  }
+  return {
+    value: meters.toFixed(2),
+    unit: 'sq meters',
+    shortUnit: 'm²',
+  };
+}
+
 export const GlassesHUD: React.FC<GlassesHUDProps> = ({
   score,
-  floodableSqMiles,
-  supplyFloodableSqMiles,
-  scoutFloodableSqMiles,
+  floodableSqMeters,
+  supplyFloodableSqMeters,
+  scoutFloodableSqMeters,
   isFlooding,
   scoutInfo,
   anchor,
@@ -44,6 +74,11 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
   onOpenZoomWindow,
   onFlood,
 }) => {
+  const scoreDisplay = formatScoreMeters(score);
+  const floodableDisplay = formatAreaMeters(floodableSqMeters);
+  const supplyDisplay = formatAreaMeters(supplyFloodableSqMeters);
+  const scoutDisplay = formatAreaMeters(scoutFloodableSqMeters);
+
   return (
     <div className="absolute inset-0 pointer-events-none z-[1000] flex flex-col justify-between p-4 md:p-8 select-none">
       {/* Top Bar with Score (Upper Left) and Floodable with Breakout (Upper Right) */}
@@ -53,17 +88,20 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           <div className="hud-score text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-wider flex items-baseline gap-2">
             <span>Score:</span>
             <span className="font-mono text-4xl sm:text-5xl md:text-6xl text-amber-300">
-              {score.toFixed(2)}
+              {scoreDisplay.value}
+            </span>
+            <span className="text-xl sm:text-2xl md:text-3xl font-bold text-amber-300/90 ml-0.5">
+              {scoreDisplay.unit}
             </span>
           </div>
           <div className="text-xs sm:text-sm font-bold text-amber-200/80 uppercase tracking-widest pl-1 mt-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-            sq miles flooded
+            {scoreDisplay.label}
           </div>
         </div>
 
-        {/* TOP CENTER: GPS Status / Prompt if not yet locked */}
+        {/* TOP CENTER: GPS Prompt if not yet locked */}
         <div className="pointer-events-auto flex flex-col items-center">
-          {!hasGps ? (
+          {!hasGps && (
             <button
               type="button"
               onClick={onGrantGps}
@@ -73,11 +111,6 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
               <MapPin className="w-3.5 h-3.5 text-black" />
               <span>Acquiring Glasses GPS (Tap to allow)</span>
             </button>
-          ) : (
-            <div className="bg-black/60 backdrop-blur-sm border border-emerald-500/40 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-emerald-300 flex items-center gap-1.5 drop-shadow">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>DEVICE GPS LOCKED</span>
-            </div>
           )}
         </div>
 
@@ -92,12 +125,15 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
             <span>Floodable:</span>
             <span
               className={`font-mono text-4xl sm:text-5xl md:text-6xl transition-colors duration-200 ${
-                floodableSqMiles > 0
+                floodableSqMeters > 0
                   ? 'text-cyan-300 drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]'
                   : 'text-neutral-300'
               }`}
             >
-              {floodableSqMiles.toFixed(2)}
+              {floodableDisplay.value}
+            </span>
+            <span className="text-lg sm:text-xl font-bold text-cyan-200/90">
+              {floodableDisplay.shortUnit}
             </span>
           </div>
           <div className="flex items-center gap-2 mt-0.5">
@@ -105,7 +141,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
               Swipe Down or Tap to Flood
             </span>
             <span className="text-xs sm:text-sm font-bold text-cyan-100/80 uppercase tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
-              sq miles
+              {floodableDisplay.unit}
             </span>
           </div>
 
@@ -114,12 +150,12 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
             <div className="flex items-center gap-1.5">
               <Ship className="w-3 h-3 text-amber-400" />
               <span className="text-neutral-400">Supply Ship:</span>
-              <span className="text-amber-300">{supplyFloodableSqMiles.toFixed(2)} sq mi</span>
+              <span className="text-amber-300">{supplyDisplay.value} {supplyDisplay.shortUnit}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Navigation className="w-3 h-3 text-cyan-400" />
               <span className="text-neutral-400">Scout:</span>
-              <span className="text-cyan-300">{scoutFloodableSqMiles.toFixed(2)} sq mi</span>
+              <span className="text-cyan-300">{scoutDisplay.value} {scoutDisplay.shortUnit}</span>
             </div>
           </div>
         </div>

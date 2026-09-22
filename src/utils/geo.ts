@@ -180,9 +180,9 @@ export function toTurfPolygon(
 }
 
 /**
- * Calculates the floodable area in square miles, subtracting any existing flooded water
+ * Calculates the floodable area in square meters, subtracting any existing flooded water
  */
-export function calculateFloodableAreaSqMiles(
+export function calculateFloodableAreaSqMeters(
   enclosedCoords: GeoPoint[],
   existingWaterFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null
 ): number {
@@ -192,30 +192,42 @@ export function calculateFloodableAreaSqMiles(
   try {
     const polySqMeters = turf.area(poly);
     if (!existingWaterFeature) {
-      return Math.max(0, polySqMeters * SQ_METERS_TO_SQ_MILES);
+      return Math.max(0, polySqMeters);
     }
 
     // Subtract existing water from candidate polygon
     try {
       const diff = turf.difference(turf.featureCollection([poly, existingWaterFeature]));
       if (diff) {
-        const sqMeters = turf.area(diff);
-        return Math.max(0, sqMeters * SQ_METERS_TO_SQ_MILES);
+        return Math.max(0, turf.area(diff));
       }
+      // If diff is null, poly is completely covered by existingWaterFeature
+      return 0;
     } catch {
       // If difference threw a topology exception, fallback to estimated difference
-      const existingArea = turf.area(existingWaterFeature);
-      const unionCandidate = turf.union(turf.featureCollection([existingWaterFeature, poly]));
-      if (unionCandidate) {
-        const unionArea = turf.area(unionCandidate);
-        return Math.max(0, (unionArea - existingArea) * SQ_METERS_TO_SQ_MILES);
-      }
+      try {
+        const existingArea = turf.area(existingWaterFeature);
+        const unionCandidate = turf.union(turf.featureCollection([existingWaterFeature, poly]));
+        if (unionCandidate) {
+          const unionArea = turf.area(unionCandidate);
+          return Math.max(0, unionArea - existingArea);
+        }
+      } catch {}
+      return 0;
     }
-
-    return Math.max(0, polySqMeters * SQ_METERS_TO_SQ_MILES);
   } catch {
     return 0;
   }
+}
+
+/**
+ * Backward-compatible alias for square miles
+ */
+export function calculateFloodableAreaSqMiles(
+  enclosedCoords: GeoPoint[],
+  existingWaterFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null
+): number {
+  return calculateFloodableAreaSqMeters(enclosedCoords, existingWaterFeature) * SQ_METERS_TO_SQ_MILES;
 }
 
 /**
@@ -226,62 +238,69 @@ export function unionWater(
   newCoords: GeoPoint[]
 ): {
   newFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null;
+  totalAreaSqMeters: number;
   totalAreaSqMiles: number;
 } {
   const newPoly = toTurfPolygon(newCoords);
   if (!newPoly) {
+    const existingArea = existingWaterFeature ? turf.area(existingWaterFeature) : 0;
     return {
       newFeature: existingWaterFeature,
-      totalAreaSqMiles: existingWaterFeature
-        ? turf.area(existingWaterFeature) * SQ_METERS_TO_SQ_MILES
-        : 0,
+      totalAreaSqMeters: existingArea,
+      totalAreaSqMiles: existingArea * SQ_METERS_TO_SQ_MILES,
     };
   }
 
   if (!existingWaterFeature) {
-    const area = turf.area(newPoly) * SQ_METERS_TO_SQ_MILES;
+    const area = turf.area(newPoly);
     return {
       newFeature: newPoly,
-      totalAreaSqMiles: area,
+      totalAreaSqMeters: area,
+      totalAreaSqMiles: area * SQ_METERS_TO_SQ_MILES,
     };
   }
 
   try {
     const unionRes = turf.union(turf.featureCollection([existingWaterFeature, newPoly]));
     if (unionRes) {
-      const area = turf.area(unionRes) * SQ_METERS_TO_SQ_MILES;
+      const area = turf.area(unionRes);
       return {
         newFeature: unionRes as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
-        totalAreaSqMiles: area,
+        totalAreaSqMeters: area,
+        totalAreaSqMiles: area * SQ_METERS_TO_SQ_MILES,
       };
     }
   } catch {
     // If union fails due to precision/topology, combine into MultiPolygon or sum areas
     try {
-      const combinedArea =
-        (turf.area(existingWaterFeature) + turf.area(newPoly)) * SQ_METERS_TO_SQ_MILES;
+      const combinedArea = turf.area(existingWaterFeature) + turf.area(newPoly);
       return {
         newFeature: existingWaterFeature,
-        totalAreaSqMiles: combinedArea,
+        totalAreaSqMeters: combinedArea,
+        totalAreaSqMiles: combinedArea * SQ_METERS_TO_SQ_MILES,
       };
     } catch {
       // Fallback to existing
     }
   }
 
+  const fallbackArea = turf.area(existingWaterFeature);
   return {
     newFeature: existingWaterFeature,
-    totalAreaSqMiles: turf.area(existingWaterFeature) * SQ_METERS_TO_SQ_MILES,
+    totalAreaSqMeters: fallbackArea,
+    totalAreaSqMiles: fallbackArea * SQ_METERS_TO_SQ_MILES,
   };
 }
 
 /**
- * Calculates supply ship position along perimeter arc between start of path and current user position
+ * Calculates supply ship position along perimeter arc between start of path and current user position.
+ * Supports direct progress (0 to 1) and isForward direction for smooth uninterrupted continuation after flooding.
  */
 export function calculateSupplyShipState(
   startPt: GeoPoint,
   currentPt: GeoPoint,
-  timeMs: number,
+  progressOrTime: number,
+  isForwardOpt?: boolean,
   shipHeadingDeg: number = 45
 ): {
   position: GeoPoint;
@@ -289,12 +308,20 @@ export function calculateSupplyShipState(
   progress: number;
   isForward: boolean;
 } {
-  const cycleMs = 30000; // 15s forward, 15s backward = 30s loop
-  const elapsedInCycle = timeMs % cycleMs;
-  const isForward = elapsedInCycle < 15000;
-  const progress = isForward
-    ? elapsedInCycle / 15000
-    : (30000 - elapsedInCycle) / 15000;
+  let progress: number;
+  let isForward: boolean;
+
+  if (isForwardOpt !== undefined) {
+    progress = Math.max(0, Math.min(1, progressOrTime));
+    isForward = isForwardOpt;
+  } else {
+    const cycleMs = 30000; // 15s forward, 15s backward = 30s loop
+    const elapsedInCycle = progressOrTime % cycleMs;
+    isForward = elapsedInCycle < 15000;
+    progress = isForward
+      ? elapsedInCycle / 15000
+      : (30000 - elapsedInCycle) / 15000;
+  }
 
   const chordDist = getDistanceMeters(startPt, currentPt);
 
@@ -325,7 +352,7 @@ export function calculateSupplyShipState(
   const nextLng = tNext1 * tNext1 * startPt.lng + 2 * tNext1 * tNext * apex.lng + tNext * tNext * currentPt.lng;
 
   let heading = getBearing({ lat: curLat, lng: curLng }, { lat: nextLat, lng: nextLng });
-  if (isNaN(heading)) heading = bearing;
+  if (isNaN(heading)) heading = isForward ? bearing : (bearing + 180) % 360;
 
   return {
     position: { lat: curLat, lng: curLng },
@@ -381,6 +408,7 @@ export function unionMultipleWater(
   polygonCoordsList: GeoPoint[][]
 ): {
   newFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null;
+  totalAreaSqMeters: number;
   totalAreaSqMiles: number;
 } {
   let currentFeature = existingWaterFeature;
@@ -391,12 +419,13 @@ export function unionMultipleWater(
     }
   }
 
-  const totalArea = currentFeature
-    ? turf.area(currentFeature) * SQ_METERS_TO_SQ_MILES
+  const totalAreaMeters = currentFeature
+    ? turf.area(currentFeature)
     : 0;
 
   return {
     newFeature: currentFeature,
-    totalAreaSqMiles: Math.max(0, totalArea),
+    totalAreaSqMeters: Math.max(0, totalAreaMeters),
+    totalAreaSqMiles: Math.max(0, totalAreaMeters * SQ_METERS_TO_SQ_MILES),
   };
 }
