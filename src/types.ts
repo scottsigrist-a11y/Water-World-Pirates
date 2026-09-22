@@ -18,6 +18,15 @@ export interface ScoutBoatInfo {
   returnStartPos?: GeoPoint;
 }
 
+export interface SupplyShipInfo {
+  position: GeoPoint;
+  heading: number; // in degrees
+  progress: number; // 0 (start of path) to 1 (pirate ship)
+  isForward: boolean; // moving forward or back
+}
+
+export type ViewMode = 'full_course' | 'center';
+
 export interface AnchorPoint {
   position: GeoPoint;
   timestamp: number;

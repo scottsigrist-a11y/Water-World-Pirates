@@ -221,3 +221,115 @@ export function unionWater(
     totalAreaSqMiles: turf.area(existingWaterFeature) * SQ_METERS_TO_SQ_MILES,
   };
 }
+
+/**
+ * Calculates supply ship position along perimeter arc between start of path and current user position
+ */
+export function calculateSupplyShipState(
+  startPt: GeoPoint,
+  currentPt: GeoPoint,
+  timeMs: number
+): {
+  position: GeoPoint;
+  heading: number;
+  progress: number;
+  isForward: boolean;
+} {
+  const cycleMs = 30000; // 15s forward, 15s backward = 30s loop
+  const elapsedInCycle = timeMs % cycleMs;
+  const isForward = elapsedInCycle < 15000;
+  const progress = isForward
+    ? elapsedInCycle / 15000
+    : (30000 - elapsedInCycle) / 15000;
+
+  const chordDist = getDistanceMeters(startPt, currentPt);
+
+  if (chordDist < 5) {
+    return {
+      position: startPt,
+      heading: 0,
+      progress,
+      isForward,
+    };
+  }
+
+  // Calculate arched outer perimeter point
+  const bearing = getBearing(startPt, currentPt);
+  const perpBearing = (bearing + 90) % 360;
+  const offset = Math.max(30, chordDist * 0.28);
+  const mid: GeoPoint = {
+    lat: (startPt.lat + currentPt.lat) / 2,
+    lng: (startPt.lng + currentPt.lng) / 2,
+  };
+  const apex = getDestinationPoint(mid, perpBearing, offset);
+
+  // Bezier curve point at t = progress
+  const t = Math.max(0, Math.min(1, progress));
+  const t1 = 1 - t;
+  const curLat = t1 * t1 * startPt.lat + 2 * t1 * t * apex.lat + t * t * currentPt.lat;
+  const curLng = t1 * t1 * startPt.lng + 2 * t1 * t * apex.lng + t * t * currentPt.lng;
+
+  // Tangent for heading facing direction of travel
+  const dt = 0.01;
+  const tNext = isForward ? Math.min(1, t + dt) : Math.max(0, t - dt);
+  const tNext1 = 1 - tNext;
+  const nextLat = tNext1 * tNext1 * startPt.lat + 2 * tNext1 * tNext * apex.lat + tNext * tNext * currentPt.lat;
+  const nextLng = tNext1 * tNext1 * startPt.lng + 2 * tNext1 * tNext * apex.lng + tNext * tNext * currentPt.lng;
+
+  let heading = getBearing({ lat: curLat, lng: curLng }, { lat: nextLat, lng: nextLng });
+  if (isNaN(heading)) heading = 0;
+
+  return {
+    position: { lat: curLat, lng: curLng },
+    heading,
+    progress,
+    isForward,
+  };
+}
+
+/**
+ * Builds the polygon enclosed by the supply ship's 2 black dotted lines and the user's path:
+ * - Start of path -> along user path to pirate ship
+ * - Bow black dotted line to supply ship
+ * - Stern black dotted line back to start of path
+ */
+export function buildSupplyPolygon(
+  startPt: GeoPoint,
+  userPath: GeoPoint[],
+  currentPt: GeoPoint,
+  supplyPt: GeoPoint
+): GeoPoint[] {
+  const ring: GeoPoint[] = [startPt];
+  for (const pt of userPath) {
+    ring.push(pt);
+  }
+  ring.push(currentPt);
+  ring.push(supplyPt);
+  ring.push(startPt);
+  return ring;
+}
+
+/**
+ * Union multiple polygons into existing water feature and compute accurate total score
+ */
+export function unionMultipleWater(
+  existingWaterFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null,
+  polygonCoordsList: GeoPoint[][]
+): {
+  newFeature: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null;
+  totalAreaSqMiles: number;
+} {
+  let currentFeature = existingWaterFeature;
+  for (const coords of polygonCoordsList) {
+    if (coords && coords.length >= 3) {
+      const res = unionWater(currentFeature, coords);
+      currentFeature = res.newFeature;
+    }
+  }
+  return {
+    newFeature: currentFeature,
+    totalAreaSqMiles: currentFeature
+      ? turf.area(currentFeature) * SQ_METERS_TO_SQ_MILES
+      : 0,
+  };
+}

@@ -1,7 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { GeoPoint, ScoutBoatInfo, AnchorPoint } from '../types';
-import { createPirateShipIcon, createScoutBoatIcon, createAnchorIcon } from './MapIcons';
+import { GeoPoint, ScoutBoatInfo, AnchorPoint, SupplyShipInfo, ViewMode } from '../types';
+import { 
+  createPirateShipIcon, 
+  createScoutBoatIcon, 
+  createAnchorIcon, 
+  createSupplyShipIcon 
+} from './MapIcons';
 
 interface WaterWorldMapProps {
   userPos: GeoPoint;
@@ -11,11 +16,15 @@ interface WaterWorldMapProps {
   anchor: AnchorPoint | null;
   userPathSinceAnchor: GeoPoint[];
   previewEnclosedCoords: GeoPoint[] | null;
+  supplyShipInfo: SupplyShipInfo | null;
+  supplyEnclosedCoords: GeoPoint[] | null;
+  viewMode: ViewMode;
   floodedPolygons: GeoPoint[][];
   isFlooding: boolean;
   onSwipe: (direction: 'up' | 'down' | 'left' | 'right') => void;
   onMapReady?: (map: L.Map) => void;
   onZoomChange?: (zoom: number, visibleRadiusMiles: number) => void;
+  onTapViewport?: () => void;
 }
 
 export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
@@ -25,11 +34,15 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   scoutInfo,
   anchor,
   previewEnclosedCoords,
+  supplyShipInfo,
+  supplyEnclosedCoords,
+  viewMode,
   floodedPolygons,
   isFlooding,
   onSwipe,
   onMapReady,
   onZoomChange,
+  onTapViewport,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -38,6 +51,7 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   const shipMarkerRef = useRef<L.Marker | null>(null);
   const scoutMarkerRef = useRef<L.Marker | null>(null);
   const anchorMarkerRef = useRef<L.Marker | null>(null);
+  const supplyShipMarkerRef = useRef<L.Marker | null>(null);
 
   // User Yellow Trail with Black Outline
   const trailOutlineRef = useRef<L.Polyline | null>(null);
@@ -47,8 +61,15 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
   const sternToShipLineRef = useRef<L.Polyline | null>(null);
   const bowToAnchorLineRef = useRef<L.Polyline | null>(null);
 
-  // Active floodable preview polygon
-  const previewPolyRef = useRef<L.Polygon | null>(null);
+  // Black Dotted Lines for Supply Ship:
+  // 1. Bow to Pirate Ship
+  // 2. Stern to Start of Path
+  const supplyBowToShipLineRef = useRef<L.Polyline | null>(null);
+  const supplySternToStartLineRef = useRef<L.Polyline | null>(null);
+
+  // Active floodable preview polygons
+  const scoutPreviewPolyRef = useRef<L.Polygon | null>(null);
+  const supplyPreviewPolyRef = useRef<L.Polygon | null>(null);
 
   // Layer group for permanent flooded water bodies
   const floodedLayerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -75,14 +96,14 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     const map = L.map(mapContainerRef.current, {
       center: [userPos.lat, userPos.lng],
       zoom: 14,
-      minZoom: 7, // ~200 miles radius max
+      minZoom: 6, // ~200 miles radius max
       maxZoom: 18,
       zoomControl: false,
       attributionControl: false,
-      scrollWheelZoom: false, // Gestures use swipes as per Ray-Ban glasses specs
+      scrollWheelZoom: false,
       doubleClickZoom: false,
       boxZoom: false,
-      touchZoom: false, // Custom touch swipe handler used instead
+      touchZoom: false,
     });
 
     // Standard OpenStreetMap Tiles
@@ -94,6 +115,25 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     // Layer for flooded territories
     const floodedGroup = L.layerGroup().addTo(map);
     floodedLayerGroupRef.current = floodedGroup;
+
+    // Preview polygons for active floodable zones
+    const supplyPreview = L.polygon([], {
+      color: '#0284c7',
+      fillColor: '#38bdf8',
+      fillOpacity: 0.28,
+      weight: 1.5,
+      dashArray: '4, 4',
+    }).addTo(map);
+    supplyPreviewPolyRef.current = supplyPreview;
+
+    const scoutPreview = L.polygon([], {
+      color: '#38bdf8',
+      fillColor: '#0284c7',
+      fillOpacity: 0.35,
+      weight: 2.5,
+      dashArray: '6, 6',
+    }).addTo(map);
+    scoutPreviewPolyRef.current = scoutPreview;
 
     // User path polylines: bold yellow with black outline
     const outline = L.polyline([], {
@@ -114,32 +154,41 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     }).addTo(map);
     trailInnerRef.current = inner;
 
-    // Scout connection lines: stern -> pirate ship, bow -> anchor
-    const sternLine = L.polyline([], {
-      color: '#ffffff',
-      weight: 4,
+    // Supply Ship Black Dotted Lines:
+    // Bow to Pirate Ship
+    const bowLineSupply = L.polyline([], {
+      color: '#000000',
+      weight: 3.5,
       opacity: 0.95,
-      dashArray: '8, 6',
-    }).addTo(map);
-    sternToShipLineRef.current = sternLine;
-
-    const bowLine = L.polyline([], {
-      color: '#ffffff',
-      weight: 4,
-      opacity: 0.95,
-      dashArray: '8, 6',
-    }).addTo(map);
-    bowToAnchorLineRef.current = bowLine;
-
-    // Preview polygon
-    const preview = L.polygon([], {
-      color: '#38bdf8',
-      fillColor: '#0284c7',
-      fillOpacity: 0.35,
-      weight: 2.5,
       dashArray: '6, 6',
     }).addTo(map);
-    previewPolyRef.current = preview;
+    supplyBowToShipLineRef.current = bowLineSupply;
+
+    // Stern to Start of Path
+    const sternLineSupply = L.polyline([], {
+      color: '#000000',
+      weight: 3.5,
+      opacity: 0.95,
+      dashArray: '6, 6',
+    }).addTo(map);
+    supplySternToStartLineRef.current = sternLineSupply;
+
+    // Scout connection lines: stern -> pirate ship, bow -> anchor
+    const sternLineScout = L.polyline([], {
+      color: '#ffffff',
+      weight: 4,
+      opacity: 0.95,
+      dashArray: '8, 6',
+    }).addTo(map);
+    sternToShipLineRef.current = sternLineScout;
+
+    const bowLineScout = L.polyline([], {
+      color: '#ffffff',
+      weight: 4,
+      opacity: 0.95,
+      dashArray: '8, 6',
+    }).addTo(map);
+    bowToAnchorLineRef.current = bowLineScout;
 
     // Pirate ship marker in center
     const shipMarker = L.marker([userPos.lat, userPos.lng], {
@@ -162,18 +211,46 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     };
   }, []);
 
-  // Sync pirate ship position & heading, keeping user centered
+  // Update camera based on viewMode ('full_course' vs 'center')
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    map.panTo([userPos.lat, userPos.lng], { animate: false });
+    if (viewMode === 'full_course') {
+      // Auto-fit entire course/path on screen
+      const pts: [number, number][] = userPath.map((p) => [p.lat, p.lng]);
+      if (supplyShipInfo) {
+        pts.push([supplyShipInfo.position.lat, supplyShipInfo.position.lng]);
+      }
+      if (scoutInfo) {
+        pts.push([scoutInfo.position.lat, scoutInfo.position.lng]);
+      }
+      if (anchor) {
+        pts.push([anchor.position.lat, anchor.position.lng]);
+      }
+
+      if (pts.length >= 2) {
+        const bounds = L.latLngBounds(pts);
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, {
+            padding: [65, 65],
+            maxZoom: 17,
+            animate: false,
+          });
+        }
+      } else {
+        map.panTo([userPos.lat, userPos.lng], { animate: false });
+      }
+    } else {
+      // 'center' mode: keep pirate ship centered
+      map.panTo([userPos.lat, userPos.lng], { animate: false });
+    }
 
     if (shipMarkerRef.current) {
       shipMarkerRef.current.setLatLng([userPos.lat, userPos.lng]);
       shipMarkerRef.current.setIcon(createPirateShipIcon(userHeading));
     }
-  }, [userPos.lat, userPos.lng, userHeading]);
+  }, [userPos.lat, userPos.lng, userHeading, userPath, viewMode, supplyShipInfo, scoutInfo, anchor]);
 
   // Update user trail path (bold yellow with black outline)
   useEffect(() => {
@@ -185,6 +262,68 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
       trailInnerRef.current.setLatLngs(latlngs);
     }
   }, [userPath]);
+
+  // Update Supply Ship marker and Black Dotted connecting lines
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (supplyShipInfo && userPath.length > 0) {
+      const startPt = userPath[0];
+      const shipPt = userPos;
+      const supplyPt = supplyShipInfo.position;
+
+      // Marker
+      if (!supplyShipMarkerRef.current) {
+        supplyShipMarkerRef.current = L.marker([supplyPt.lat, supplyPt.lng], {
+          icon: createSupplyShipIcon(supplyShipInfo.heading),
+          zIndexOffset: 920,
+        }).addTo(map);
+      } else {
+        supplyShipMarkerRef.current.setLatLng([supplyPt.lat, supplyPt.lng]);
+        supplyShipMarkerRef.current.setIcon(createSupplyShipIcon(supplyShipInfo.heading));
+      }
+
+      // 1. Black dotted line from Bow of Supply Ship to Pirate Ship
+      if (supplyBowToShipLineRef.current) {
+        supplyBowToShipLineRef.current.setLatLngs([
+          [supplyPt.lat, supplyPt.lng],
+          [shipPt.lat, shipPt.lng],
+        ]);
+      }
+
+      // 2. Black dotted line from Stern of Supply Ship to Start of Path
+      if (supplySternToStartLineRef.current) {
+        supplySternToStartLineRef.current.setLatLngs([
+          [supplyPt.lat, supplyPt.lng],
+          [startPt.lat, startPt.lng],
+        ]);
+      }
+
+      // Preview polygon within the two lines and path
+      if (supplyPreviewPolyRef.current && supplyEnclosedCoords && supplyEnclosedCoords.length >= 3 && !isFlooding) {
+        const polyLatLngs = supplyEnclosedCoords.map((pt) => [pt.lat, pt.lng] as [number, number]);
+        supplyPreviewPolyRef.current.setLatLngs([polyLatLngs]);
+        supplyPreviewPolyRef.current.setStyle({ opacity: 0.7, fillOpacity: 0.25 });
+      } else if (supplyPreviewPolyRef.current) {
+        supplyPreviewPolyRef.current.setLatLngs([]);
+      }
+    } else {
+      if (supplyShipMarkerRef.current) {
+        map.removeLayer(supplyShipMarkerRef.current);
+        supplyShipMarkerRef.current = null;
+      }
+      if (supplyBowToShipLineRef.current) {
+        supplyBowToShipLineRef.current.setLatLngs([]);
+      }
+      if (supplySternToStartLineRef.current) {
+        supplySternToStartLineRef.current.setLatLngs([]);
+      }
+      if (supplyPreviewPolyRef.current) {
+        supplyPreviewPolyRef.current.setLatLngs([]);
+      }
+    }
+  }, [supplyShipInfo, supplyEnclosedCoords, userPos, userPath, isFlooding]);
 
   // Update Anchor marker
   useEffect(() => {
@@ -255,7 +394,6 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
         });
       }
     } else {
-      // Remove scout marker and clear lines
       if (scoutMarkerRef.current) {
         map.removeLayer(scoutMarkerRef.current);
         scoutMarkerRef.current = null;
@@ -269,16 +407,16 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
     }
   }, [scoutInfo, anchor, userPos, isFlooding]);
 
-  // Update active floodable area preview polygon
+  // Update active floodable area scout preview polygon
   useEffect(() => {
-    if (!previewPolyRef.current) return;
+    if (!scoutPreviewPolyRef.current) return;
 
     if (previewEnclosedCoords && previewEnclosedCoords.length >= 3 && !isFlooding) {
       const latlngs = previewEnclosedCoords.map((pt) => [pt.lat, pt.lng] as [number, number]);
-      previewPolyRef.current.setLatLngs([latlngs]);
-      previewPolyRef.current.setStyle({ opacity: 0.8, fillOpacity: 0.35 });
+      scoutPreviewPolyRef.current.setLatLngs([latlngs]);
+      scoutPreviewPolyRef.current.setStyle({ opacity: 0.8, fillOpacity: 0.35 });
     } else {
-      previewPolyRef.current.setLatLngs([]);
+      scoutPreviewPolyRef.current.setLatLngs([]);
     }
   }, [previewEnclosedCoords, isFlooding]);
 
@@ -321,14 +459,13 @@ export const WaterWorldMap: React.FC<WaterWorldMapProps> = ({
 
     const dx = clientX - touchStartRef.current.x;
     const dy = clientY - touchStartRef.current.y;
-    const dt = Date.now() - touchStartRef.current.time;
-
     touchStartRef.current = null;
 
     // Minimum swipe displacement threshold
     const minDistance = 25;
     if (Math.abs(dx) < minDistance && Math.abs(dy) < minDistance) {
-      return; // Regular tap or click
+      if (onTapViewport) onTapViewport();
+      return;
     }
 
     if (Math.abs(dx) > Math.abs(dy)) {

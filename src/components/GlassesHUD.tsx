@@ -4,7 +4,9 @@ import {
   Anchor, 
   Navigation, 
   Waves,
-  Compass
+  Compass,
+  MapPin,
+  Ship
 } from 'lucide-react';
 import { ScoutBoatInfo, AnchorPoint } from '../types';
 import { WaterWorldLogo } from './WaterWorldLogo';
@@ -12,27 +14,37 @@ import { WaterWorldLogo } from './WaterWorldLogo';
 interface GlassesHUDProps {
   score: number;
   floodableSqMiles: number;
+  supplyFloodableSqMiles: number;
+  scoutFloodableSqMiles: number;
   isFlooding: boolean;
   scoutInfo: ScoutBoatInfo | null;
   anchor: AnchorPoint | null;
   currentHeading: number;
   currentSpeedMph: number;
   visibleRadiusMiles: number;
+  hasGps: boolean;
+  onGrantGps: () => void;
+  onOpenZoomWindow: () => void;
 }
 
 export const GlassesHUD: React.FC<GlassesHUDProps> = ({
   score,
   floodableSqMiles,
+  supplyFloodableSqMiles,
+  scoutFloodableSqMiles,
   isFlooding,
   scoutInfo,
   anchor,
   currentHeading,
   currentSpeedMph,
   visibleRadiusMiles,
+  hasGps,
+  onGrantGps,
+  onOpenZoomWindow,
 }) => {
   return (
     <div className="absolute inset-0 pointer-events-none z-[1000] flex flex-col justify-between p-4 md:p-8 select-none">
-      {/* Top Bar with Score (Upper Left) and Floodable (Upper Right) */}
+      {/* Top Bar with Score (Upper Left) and Floodable with Breakout (Upper Right) */}
       <header className="flex items-start justify-between w-full">
         {/* UPPER LEFT: Golden Letters with Black Glow */}
         <div id="hud-score-display" className="pointer-events-auto flex flex-col items-start">
@@ -47,7 +59,27 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           </div>
         </div>
 
-        {/* UPPER RIGHT: Large Bold Letters saying Floodable */}
+        {/* TOP CENTER: GPS Status / Prompt if not yet locked */}
+        <div className="pointer-events-auto flex flex-col items-center">
+          {!hasGps ? (
+            <button
+              type="button"
+              onClick={onGrantGps}
+              className="bg-amber-500/90 hover:bg-amber-400 text-black font-bold px-3.5 py-1.5 rounded-full text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.6)] animate-pulse transition"
+              title="Allow GPS Location on Glasses"
+            >
+              <MapPin className="w-3.5 h-3.5 text-black" />
+              <span>Acquiring Glasses GPS (Tap to allow)</span>
+            </button>
+          ) : (
+            <div className="bg-black/60 backdrop-blur-sm border border-emerald-500/40 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-emerald-300 flex items-center gap-1.5 drop-shadow">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>DEVICE GPS LOCKED</span>
+            </div>
+          )}
+        </div>
+
+        {/* UPPER RIGHT: Large Bold Letters saying Floodable & Breakout */}
         <div id="hud-floodable-display" className="pointer-events-auto flex flex-col items-end text-right">
           <div className="hud-floodable text-3xl sm:text-4xl md:text-5xl font-black tracking-wider flex items-baseline gap-2">
             <span>Floodable:</span>
@@ -63,6 +95,20 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           </div>
           <div className="text-xs sm:text-sm font-bold text-cyan-100/80 uppercase tracking-widest pr-1 mt-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">
             sq miles
+          </div>
+
+          {/* Subtext Breakout: Supply Ship & Scout */}
+          <div className="mt-1.5 flex flex-col items-end gap-0.5 text-xs sm:text-[13px] font-mono font-bold bg-black/75 backdrop-blur-md border border-neutral-700/80 px-3 py-1.5 rounded-xl shadow-lg">
+            <div className="flex items-center gap-1.5">
+              <Ship className="w-3 h-3 text-amber-400" />
+              <span className="text-neutral-400">Supply Ship:</span>
+              <span className="text-amber-300">{supplyFloodableSqMiles.toFixed(2)} sq mi</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Navigation className="w-3 h-3 text-cyan-400" />
+              <span className="text-neutral-400">Scout:</span>
+              <span className="text-cyan-300">{scoutFloodableSqMiles.toFixed(2)} sq mi</span>
+            </div>
           </div>
         </div>
       </header>
@@ -110,14 +156,14 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           <div className="bg-black/80 backdrop-blur-md border border-amber-400/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl">
             <Anchor className="w-4 h-4 text-amber-400" />
             <span className="text-xs font-bold text-amber-200 tracking-wider">
-              ANCHOR DROPPED — SWIPE TO ENCLOSE & FLOOD
+              ANCHOR DROPPED — SWIPE DOWN TO ENCLOSE & FLOOD
             </span>
           </div>
         )}
       </div>
 
-      {/* Bottom Footer: Water World Movie Logo and Subtle Maritime Compass */}
-      <footer className="w-full flex items-end justify-between">
+      {/* Bottom Footer: Water World Movie Logo, Navigation Scope Trigger, and Subtle Maritime Compass */}
+      <footer className="w-full flex items-end justify-between gap-4">
         {/* Left: Authentic Water World Movie Logo */}
         <div className="pointer-events-auto bg-black/75 backdrop-blur-md border border-amber-500/30 rounded-2xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex items-center gap-4">
           <WaterWorldLogo />
@@ -138,8 +184,16 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           </div>
         </div>
 
-        {/* Right side is intentionally clean and uncluttered */}
-        <div />
+        {/* Right: Quick Scope button or swipe up hint */}
+        <button
+          type="button"
+          onClick={onOpenZoomWindow}
+          className="pointer-events-auto bg-black/80 hover:bg-neutral-900 active:bg-amber-600/30 backdrop-blur-md border border-amber-500/40 px-3.5 py-2 rounded-2xl text-amber-300 font-bold text-xs flex items-center gap-2 shadow-xl transition"
+          title="Swipe Up or Click for Zoom Scope Window"
+        >
+          <Compass className="w-4 h-4 text-amber-400" />
+          <span>Scope / Zoom (Swipe Up)</span>
+        </button>
       </footer>
     </div>
   );

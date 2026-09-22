@@ -144,3 +144,54 @@ export function createAnchorIcon(): L.DivIcon {
     iconAnchor: [24, 24],
   });
 }
+
+/**
+ * Custom SVG DivIcon for the Supply Ship with Supplies Flag
+ */
+export function createSupplyShipIcon(headingDeg: number = 0): L.DivIcon {
+  const html = `
+    <div style="transform: rotate(${headingDeg}deg); transform-origin: center center; width: 56px; height: 56px; position: relative;" class="pointer-events-none drop-shadow-[0_3px_12px_rgba(0,0,0,0.85)]">
+      <!-- Water wake -->
+      <div style="position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 24px; height: 14px; background: radial-gradient(ellipse, rgba(255,255,255,0.75) 0%, rgba(56,189,248,0) 70%); border-radius: 50%; filter: blur(1px);"></div>
+
+      <svg viewBox="0 0 100 100" width="56" height="56" class="overflow-visible">
+        <!-- Hull (Weathered Merchant Cargo Vessel) -->
+        <path d="M 50 12 C 65 28 66 74 50 92 C 34 74 35 28 50 12 Z" fill="#2d1b09" stroke="#1c1917" stroke-width="2.5" />
+        
+        <!-- Cargo Deck Planking -->
+        <line x1="50" y1="22" x2="50" y2="82" stroke="#78350f" stroke-width="1.2" />
+
+        <!-- Cargo Crates / Barrels in Cargo Hold -->
+        <rect x="42" y="34" width="16" height="12" fill="#854d0e" stroke="#451a03" stroke-width="1.2" rx="1" />
+        <rect x="44" y="50" width="12" height="11" fill="#a16207" stroke="#451a03" stroke-width="1.2" rx="1" />
+        
+        <!-- Cargo cross-strapping ropes -->
+        <line x1="42" y1="34" x2="58" y2="46" stroke="#ca8a04" stroke-width="0.8" />
+        <line x1="42" y1="46" x2="58" y2="34" stroke="#ca8a04" stroke-width="0.8" />
+        
+        <!-- Barrels on side decks -->
+        <circle cx="40" cy="64" r="3.2" fill="#713f12" stroke="#1c1917" stroke-width="0.8" />
+        <circle cx="60" cy="64" r="3.2" fill="#713f12" stroke="#1c1917" stroke-width="0.8" />
+
+        <!-- Mast & Crossbeam -->
+        <line x1="36" y1="30" x2="64" y2="30" stroke="#1c1917" stroke-width="2" stroke-linecap="round" />
+        <circle cx="50" cy="30" r="2.5" fill="#f59e0b" />
+        <line x1="50" y1="30" x2="50" y2="10" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" />
+
+        <!-- Supplies Flag: fluttering to starboard with Crate/Cross Emblem -->
+        <path d="M 51 10 Q 66 6 82 11 L 80 26 Q 65 21 51 25 Z" fill="#0284c7" stroke="#38bdf8" stroke-width="0.8" />
+        <!-- Supply symbol on flag (Gold Supply Crate with Red Cross/Straps) -->
+        <rect x="58" y="13" width="12" height="9" fill="#fbbf24" stroke="#78350f" stroke-width="0.8" rx="0.8" />
+        <line x1="64" y1="13" x2="64" y2="22" stroke="#dc2626" stroke-width="1" />
+        <line x1="58" y1="17.5" x2="70" y2="17.5" stroke="#dc2626" stroke-width="1" />
+      </svg>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'supply-ship-icon',
+    iconSize: [56, 56],
+    iconAnchor: [28, 28],
+  });
+}
