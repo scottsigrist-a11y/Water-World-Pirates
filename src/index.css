@@ -41,27 +41,10 @@
     0 0 30px rgba(255, 255, 255, 0.6);
 }
 
-/* Hide standard leaflet controls for immersive Ray-Ban display experience */
+/* Hide standard leaflet controls for immersive display experience */
 .leaflet-control-attribution,
 .leaflet-control-zoom {
   display: none !important;
-}
-
-/* Water World Water Waves Animation */
-@keyframes waterRipples {
-  0% {
-    filter: hue-rotate(0deg) brightness(1);
-  }
-  50% {
-    filter: hue-rotate(15deg) brightness(1.2);
-  }
-  100% {
-    filter: hue-rotate(0deg) brightness(1);
-  }
-}
-
-.water-flooded-path {
-  animation: waterRipples 4s ease-in-out infinite;
 }
 
 /* Glass Optical Display Vignette / HUD aesthetic */

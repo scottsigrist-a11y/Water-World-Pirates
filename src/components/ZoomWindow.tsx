@@ -16,7 +16,7 @@ interface ZoomWindowProps {
   onSetFocusedRow: (row: number) => void;
 }
 
-export const ZoomWindow: React.FC<ZoomWindowProps> = ({
+export const ZoomWindow: React.FC<ZoomWindowProps> = React.memo(({
   isOpen,
   onClose,
   viewMode,
@@ -44,7 +44,7 @@ export const ZoomWindow: React.FC<ZoomWindowProps> = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm pointer-events-auto">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 pointer-events-auto">
         <motion.div
           initial={{ scale: 0.85, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -59,7 +59,7 @@ export const ZoomWindow: React.FC<ZoomWindowProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
             <div className="flex items-center gap-2.5">
-              <Compass className="w-6 h-6 text-amber-400 animate-spin" style={{ animationDuration: '20s' }} />
+              <Compass className="w-6 h-6 text-amber-400" />
               <div>
                 <h2 className="text-sm sm:text-base font-black tracking-[0.2em] uppercase font-['Cinzel'] text-amber-300">
                   Navigation & Zoom Scope
@@ -255,4 +255,4 @@ export const ZoomWindow: React.FC<ZoomWindowProps> = ({
       </div>
     </AnimatePresence>
   );
-};
+});

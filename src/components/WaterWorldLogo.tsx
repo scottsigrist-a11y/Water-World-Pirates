@@ -1,10 +1,10 @@
 import React from 'react';
 
-export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const WaterWorldLogo: React.FC<{ className?: string }> = React.memo(({ className = '' }) => {
   return (
     <div className={`flex items-center gap-3 select-none pointer-events-auto ${className}`}>
       {/* Flooded Earth Globe Emblem inspired by Waterworld movie intro */}
-      <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 drop-shadow-[0_0_15px_rgba(6,182,212,0.8)]">
+      <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0">
         <svg viewBox="0 0 100 100" className="w-full h-full">
           <defs>
             {/* Oceanic Sphere Gradient */}
@@ -30,20 +30,20 @@ export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '
           </defs>
 
           {/* Outer Ancient Mariner Brass Ring with Rivets */}
-          <circle cx="50" cy="50" r="48" fill="none" stroke="url(#bronzeRim)" stroke-width="3" opacity="0.9" />
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#042f2e" stroke-width="1.5" />
+          <circle cx="50" cy="50" r="48" fill="none" stroke="url(#bronzeRim)" strokeWidth="3" opacity="0.9" />
+          <circle cx="50" cy="50" r="45" fill="none" stroke="#042f2e" strokeWidth="1.5" />
           
           {/* Compass / Astrolabe ticks */}
-          <line x1="50" y1="2" x2="50" y2="7" stroke="#fbbf24" stroke-width="2" />
-          <line x1="50" y1="93" x2="50" y2="98" stroke="#fbbf24" stroke-width="2" />
-          <line x1="2" y1="50" x2="7" y2="50" stroke="#fbbf24" stroke-width="2" />
-          <line x1="93" y1="50" x2="98" y2="50" stroke="#fbbf24" stroke-width="2" />
+          <line x1="50" y1="2" x2="50" y2="7" stroke="#fbbf24" strokeWidth="2" />
+          <line x1="50" y1="93" x2="50" y2="98" stroke="#fbbf24" strokeWidth="2" />
+          <line x1="2" y1="50" x2="7" y2="50" stroke="#fbbf24" strokeWidth="2" />
+          <line x1="93" y1="50" x2="98" y2="50" stroke="#fbbf24" strokeWidth="2" />
 
           {/* The Flooded Globe Body */}
           <circle cx="50" cy="50" r="42" fill="url(#globeWaterGrad)" />
 
           {/* Flooded Earth submerged latitude & longitude grid (Waterworld aesthetic) */}
-          <g clipPath="url(#globeClip)" opacity="0.65" stroke="#7dd3fc" stroke-width="1" fill="none">
+          <g clipPath="url(#globeClip)" opacity="0.65" stroke="#7dd3fc" strokeWidth="1" fill="none">
             {/* Equator & Parallels */}
             <ellipse cx="50" cy="50" rx="42" ry="12" />
             <ellipse cx="50" cy="32" rx="38" ry="9" />
@@ -75,7 +75,7 @@ export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '
               d="M 5 62 Q 22 55 40 64 T 75 60 T 95 65"
               fill="none"
               stroke="#e0f2fe"
-              stroke-width="1.8"
+              strokeWidth="1.8"
               opacity="0.9"
             />
           </g>
@@ -90,11 +90,10 @@ export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '
         <div className="relative flex items-center">
           {/* Main Title: Weathered Bronze & Sunken Gold Movie Typography */}
           <h1
-            className="font-black text-2xl sm:text-3xl md:text-4xl tracking-[0.25em] uppercase font-['Cinzel'] leading-none text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-700 drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]"
+            className="font-black text-2xl sm:text-3xl md:text-4xl tracking-[0.25em] uppercase font-['Cinzel'] leading-none text-transparent bg-clip-text bg-gradient-to-b from-amber-200 via-amber-400 to-amber-700"
             style={{
-              filter: 'drop-shadow(0 0 10px rgba(245, 158, 11, 0.4)) drop-shadow(0 0 20px rgba(6, 182, 212, 0.4))',
               letterSpacing: '0.28em',
-              textShadow: '0 1px 0 #fff, 0 2px 4px #000, 0 4px 8px #042f2e',
+              textShadow: '0 1px 0 #fff, 0 2px 4px #000',
             }}
           >
             WATERWORLD
@@ -104,7 +103,7 @@ export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '
         {/* Cinematic Subtitle / Tagline */}
         <div className="flex items-center gap-2 mt-1">
           <div className="h-[1px] w-6 bg-gradient-to-r from-transparent via-cyan-400 to-cyan-500 opacity-80" />
-          <span className="text-[9px] sm:text-[10px] font-extrabold tracking-[0.35em] text-cyan-300 uppercase font-['Rajdhani'] drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+          <span className="text-[9px] sm:text-[10px] font-extrabold tracking-[0.35em] text-cyan-300 uppercase font-['Rajdhani']">
             THE HIGH SEAS
           </span>
           <div className="h-[1px] flex-1 bg-gradient-to-r from-cyan-500 via-cyan-400 to-transparent opacity-80" />
@@ -112,4 +111,4 @@ export const WaterWorldLogo: React.FC<{ className?: string }> = ({ className = '
       </div>
     </div>
   );
-};
+});

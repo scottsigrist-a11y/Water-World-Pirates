@@ -58,7 +58,7 @@ export function formatAreaMeters(meters: number) {
   };
 }
 
-export const GlassesHUD: React.FC<GlassesHUDProps> = ({
+export const GlassesHUD: React.FC<GlassesHUDProps> = React.memo(({
   score,
   floodableSqMeters,
   supplyFloodableSqMeters,
@@ -146,7 +146,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
           </div>
 
           {/* Subtext Breakout: Supply Ship & Scout */}
-          <div className="mt-1.5 flex flex-col items-end gap-0.5 text-xs sm:text-[13px] font-mono font-bold bg-black/75 backdrop-blur-md border border-neutral-700/80 px-3 py-1.5 rounded-xl shadow-lg">
+          <div className="mt-1.5 flex flex-col items-end gap-0.5 text-xs sm:text-[13px] font-mono font-bold bg-black/85 border border-neutral-700/80 px-3 py-1.5 rounded-xl shadow-lg">
             <div className="flex items-center gap-1.5">
               <Ship className="w-3 h-3 text-amber-400" />
               <span className="text-neutral-400">Supply Ship:</span>
@@ -189,7 +189,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
       <div className="flex flex-col gap-2 items-start pointer-events-none max-w-xs">
         {/* Active Scout Status Badge */}
         {scoutInfo && scoutInfo.state !== 'idle' && (
-          <div className="bg-black/80 backdrop-blur-md border border-cyan-400/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl animate-pulse">
+          <div className="bg-black/85 border border-cyan-400/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl animate-pulse">
             <Navigation className="w-4 h-4 text-cyan-300" />
             <span className="text-xs font-bold text-cyan-200 tracking-wider">
               {scoutInfo.state === 'returning'
@@ -201,7 +201,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
 
         {/* Anchor Status Badge */}
         {anchor && (
-          <div className="bg-black/80 backdrop-blur-md border border-amber-400/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl">
+          <div className="bg-black/85 border border-amber-400/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl">
             <Anchor className="w-4 h-4 text-amber-400" />
             <span className="text-xs font-bold text-amber-200 tracking-wider">
               ANCHOR DROPPED — SWIPE DOWN TO ENCLOSE & FLOOD
@@ -213,7 +213,7 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
       {/* Bottom Footer: Water World Movie Logo, Navigation Scope Trigger, and Subtle Maritime Compass */}
       <footer className="w-full flex items-end justify-between gap-4">
         {/* Left: Authentic Water World Movie Logo */}
-        <div className="pointer-events-auto bg-black/75 backdrop-blur-md border border-amber-500/30 rounded-2xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex items-center gap-4">
+        <div className="pointer-events-auto bg-black/85 border border-amber-500/30 rounded-2xl px-4 py-3 shadow-[0_8px_32px_rgba(0,0,0,0.85)] flex items-center gap-4">
           <WaterWorldLogo />
           
           <div className="hidden sm:flex items-center gap-3 pl-3 border-l border-neutral-800 text-xs text-neutral-400 font-mono">
@@ -245,4 +245,4 @@ export const GlassesHUD: React.FC<GlassesHUDProps> = ({
       </footer>
     </div>
   );
-};
+});
